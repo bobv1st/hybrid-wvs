@@ -5,36 +5,9 @@ from collections import deque
 import time
 import json
 from datetime import datetime, timezone
-
-def login(session, login_url, username, password):
-    # Fetch login page first to capture CSRF token
-    try:
-        r_get = session.get(login_url, timeout=10)
-    except Exception as e:
-        print(f"Failed to load login page: {e}")
-        r_get = None
-
-    user_token = None
-    if r_get is not None:
-        soup = BeautifulSoup(r_get.text, "html.parser")
-        token_inp = soup.find("input", attrs={"name": "user_token"})
-        if token_inp:
-            user_token = token_inp.get("value")
-
-    payload = {
-        "username": username,
-        "password": password,
-        "Login": "Login",
-    }
-    if user_token:
-        payload["user_token"] = user_token
-
-    # Send the POST request
-    r = session.post(login_url, data=payload)
+import os
 
 
-
-    return r
 
 def _iso_now():
     return datetime.now(timezone.utc).isoformat()
@@ -90,7 +63,40 @@ def _normalize_url(u: str):
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, ""))
 
 
-def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None):
+def _load_headless_links_simple(results_path: str) -> list[str]:
+    """Simplified loader: read NDJSON lines and take final_url/url as-is.
+    No domain or path filtering; normalize (strip fragments) and de-duplicate.
+    """
+    links: set[str] = set()
+    if not results_path or not os.path.exists(results_path):
+        return []
+
+    try:
+        with open(results_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                raw = obj.get("final_url") or obj.get("url")
+                if not raw:
+                    continue
+                # Keep fragments so SPA routes like #/page are preserved at enqueue time
+                links.add(str(raw).strip())
+    except Exception:
+        # Be tolerant to file/parse issues
+        return sorted(links)
+
+    return sorted(links)
+
+
+from typing import Optional, List
+
+
+def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None, playwright_results_path: str = "crawl_results.ndjson", extra_seeds: Optional[List[str]] = None):
 
     if not start_url.endswith('/'):
         start_url = start_url + '/'
@@ -102,23 +108,112 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None):
 
     total_links_discovered = 0
 
-    # prepare output file (truncate if exists)
-    if out_path:
-        with open(out_path, "w", encoding="utf-8") as f:
-            pass
+    # Note: do not truncate out_path here so other crawlers (e.g., headless)
+    # can append into the same file before/after this run.
+
+    # Seed queue with links discovered by headless crawler (depth 0), but keep scope to domain/base_path
+    for hl in _load_headless_links_simple(playwright_results_path):
+        if hl == start_url:
+            continue
+        try:
+            # Normalize for comparison (strip fragments)
+            norm_hl = _normalize_url(hl)
+            parsed_hl = urlparse(norm_hl)
+            # Enforce same domain
+            if parsed_hl.netloc != domain:
+                continue
+            # Enforce base path scope similar to link discovery below
+            link = norm_hl
+            if not parsed_hl.path.startswith(base_path):
+                if parsed_hl.path.startswith('/') and not parsed_hl.path.startswith(base_path + '/'):
+                    corrected_path = base_path.rstrip('/') + parsed_hl.path
+                    link = urlunparse((parsed_hl.scheme, parsed_hl.netloc, corrected_path, "", parsed_hl.query, ""))
+                else:
+                    # Skip anything outside the base path
+                    continue
+            queue.append((link, 0))
+        except Exception:
+            # Be tolerant to malformed URLs in headless results
+            continue
+
+    # Seed additional provided seeds (depth 0), respecting same domain/base_path
+    if extra_seeds:
+        for es in extra_seeds:
+            try:
+                if not es:
+                    continue
+                norm_es = _normalize_url(es)
+                if norm_es == start_url:
+                    continue
+                pes = urlparse(norm_es)
+                if pes.netloc != domain:
+                    continue
+                link = norm_es
+                if not pes.path.startswith(base_path):
+                    if pes.path.startswith('/') and not pes.path.startswith(base_path + '/'):
+                        corrected_path = base_path.rstrip('/') + pes.path
+                        link = urlunparse((pes.scheme, pes.netloc, corrected_path, "", pes.query, ""))
+                    else:
+                        continue
+                queue.append((link, 0))
+            except Exception:
+                continue
 
     while queue:
         url, depth = queue.popleft()
-        if depth > max_depth or url in visited:
+        # Normalize for actual HTTP request (strips fragments)
+        request_url = _normalize_url(url)
+        if depth > max_depth:
             continue
 
-        visited.add(url)
+        # Guard: skip any off-scope URLs that slipped into the queue (domain/base_path)
+        try:
+            parsed_req = urlparse(request_url)
+            if parsed_req.netloc != domain:
+                continue
+            if not (parsed_req.path.startswith(base_path) or parsed_req.path == ""):
+                # Allow exact base root as well
+                if not (parsed_req.path == "/" and base_path == "/"):
+                    continue
+        except Exception:
+            continue
+
+        # If we've already fetched the same HTTP resource (after stripping #fragment),
+        # emit a lightweight record so the queued URL is still represented in results,
+        # then skip the duplicate network request.
+        if request_url in visited:
+            try:
+                parsed_page = urlparse(request_url)
+                get_params = parse_qs(parsed_page.query)
+                fragment = urlparse(url).fragment
+                mapped_record = {
+                    "schema_version": 1,
+                    "source": "static_crawler",
+                    "discovered_at": _iso_now(),
+                    "page": url,
+                    "depth": depth,
+                    "links": [],
+                    "get_params": get_params,
+                    "forms": [],
+                    "mapped_to": request_url,
+                    "fragment_only_mapped": bool(fragment)
+                }
+                line = json.dumps(mapped_record, ensure_ascii=False)
+                print(line)
+                if out_path:
+                    with open(out_path, "a", encoding="utf-8") as f:
+                        f.write(line + "\n")
+            except Exception:
+                pass
+            continue
+
+        visited.add(request_url)
         print("Crawling:", url)
 
         try:
-            r = session.get(url, timeout=10)
+            r = session.get(request_url, timeout=10)
         except Exception as e:
-            print(f"Request failed for {url}: {e}")
+            print(f"Request failed for {request_url}: {e}")
             continue
 
         # Use final URL after redirects
@@ -137,9 +232,9 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None):
             if parsed.netloc != domain:
                 continue
 
-            # Enforce base path scoping; fix absolute paths that escape '/DVWA'
+            # fix absolute paths that escape '/DVWA'
             if not parsed.path.startswith(base_path):
-                # If original href looked like a root-absolute path, try prefixing base_path
+
                 if raw_href.startswith('/') and not raw_href.startswith(base_path + '/'):
                     corrected_path = base_path.rstrip('/') + parsed.path
                     link = urlunparse((parsed.scheme, parsed.netloc, corrected_path, "", parsed.query, ""))
@@ -181,17 +276,39 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None):
 
     print(f"Pages visited: {len(visited)}; Links discovered on pages: {total_links_discovered}")
     return visited
-session = requests.Session()
 
-login(session,
-      login_url="http://localhost/DVWA/login.php",
-      username="admin",
-      password="password")
+def static_main(seed:str):
 
-result = crawl(
-    session,
-    start_url="http://localhost/DVWA",
-    max_depth=3,
-    rate_limit=0.5,
-    out_path="crawl_results.ndjson"
-)
+
+    session = requests.Session()
+
+
+
+
+    result = crawl(
+        session,
+        start_url=seed,
+        max_depth=3,
+        rate_limit=0.5,
+        out_path="static_crawl_results.ndjson",
+        playwright_results_path="static_crawl_results.ndjson"
+    )
+
+
+def static_main_seeds(seeds: list[str]):
+    """Run the static crawler once with all provided seeds by enqueuing them at depth 0.
+    The first seed defines the scope (domain and base path)."""
+    if not isinstance(seeds, list) or not seeds:
+        return
+    session = requests.Session()
+    start = seeds[0]
+    extra = seeds[1:] if len(seeds) > 1 else []
+    crawl(
+        session,
+        start_url=start,
+        max_depth=3,
+        rate_limit=0.5,
+        out_path="static_crawl_results.ndjson",
+        playwright_results_path="static_crawl_results.ndjson",
+        extra_seeds=extra,
+    )
