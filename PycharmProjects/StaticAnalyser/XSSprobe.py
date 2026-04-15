@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 # Configuration
 # ---------------------------------------------------------------------------
 
-XSS_SCORE_THRESHOLD = 30    # only probe pages with score_xss_preprobe strictly above this
+XSS_SCORE_THRESHOLD = 7    # only probe pages with score_xss_preprobe strictly above this
 
 SCORED_RESULTS_PATH = "scored_results.ndjson"
 OUT_PATH = "xss_probe_results.ndjson"
@@ -126,12 +126,7 @@ def _unique_form_key(form: dict) -> tuple:
 
 
 def _load_unique_forms(results_path: str) -> list[dict]:
-    """
-    Read scored_results.ndjson and return a deduplicated list of
-    (page, form) dicts, keeping only the first occurrence of each
-    unique (action, method, fields) combination.
-    Only records with score_xss_preprobe > XSS_SCORE_THRESHOLD are considered.
-    """
+
     seen_keys: set = set()
     unique: list[dict] = []
 
@@ -151,7 +146,7 @@ def _load_unique_forms(results_path: str) -> list[dict]:
                     xss_score = int(record.get("score_xss_preprobe") or 0)
                 except (TypeError, ValueError):
                     xss_score = 0
-                if xss_score <= XSS_SCORE_THRESHOLD:
+                if xss_score < XSS_SCORE_THRESHOLD:
                     continue
                 # ------------------------
 
@@ -227,11 +222,7 @@ def _probe_field(
             print(f"[XSSProber] Request error on {action} [{field_name}={label}]: {e}")
             continue
 
-        # ---- Stored XSS: always re-fetch the page and look for the payload -----
-        # This runs regardless of whether the payload was reflected, because some
-        # applications (e.g. DVWA XSS_S) re-render stored entries in the POST
-        # response itself, causing stored payloads to be misclassified as reflected.
-        # Re-fetching on a subsequent GET confirms whether the payload was persisted.
+
         if not timed_out:
             try:
                 verify_resp = session.get(action, timeout=REQUEST_TIMEOUT)

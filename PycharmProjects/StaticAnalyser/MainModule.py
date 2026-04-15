@@ -5,8 +5,12 @@ import scorer
 import SQLprobe
 import XSSprobe
 import json
+import urllib3
 from urllib.parse import urlparse
 import requests
+
+# Disable SSL warnings globally
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _normalize_url(u: str) -> str:
@@ -79,6 +83,7 @@ def main():
     # Run API-aware crawler again with expanded seeds
     try:
         session = requests.Session()
+        session.verify = False
         # Keep original output path and wordlist
         ApiCrawler.api_crawl(
             session,

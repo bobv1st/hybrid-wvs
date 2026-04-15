@@ -69,7 +69,7 @@ class BrowserCrawler:
             netloc = u.netloc
             if not netloc:
                 continue
-            # Extract host and port 
+            # Extract host and port
             host_port = netloc.split("@")[-1]  # strip potential userinfo
             if ":" in host_port:
                 host, port = host_port.rsplit(":", 1)
@@ -90,8 +90,14 @@ class BrowserCrawler:
             await self.queue.put((self._normalize(s), 0))
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=self.cfg.headless)
-            context = await browser.new_context(user_agent=UA)
+            browser = await p.chromium.launch(
+                headless=self.cfg.headless,
+                args=['--ignore-certificate-errors']
+            )
+            context = await browser.new_context(
+                user_agent=UA,
+                ignore_https_errors=True
+            )
             # Set conservative navigation timeout to avoid indefinite waits
             try:
                 await context.set_default_navigation_timeout(20000)
