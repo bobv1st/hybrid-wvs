@@ -1,4 +1,5 @@
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, parse_qs, urlunparse
 from collections import deque
@@ -7,6 +8,8 @@ import json
 from datetime import datetime, timezone
 import os
 
+# Disable SSL warnings globally
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _iso_now():
@@ -64,9 +67,7 @@ def _normalize_url(u: str):
 
 
 def _load_headless_links_simple(results_path: str) -> list[str]:
-    """Simplified loader: read NDJSON lines and take final_url/url as-is.
-    No domain or path filtering; normalize (strip fragments) and de-duplicate.
-    """
+
     links: set[str] = set()
     if not results_path or not os.path.exists(results_path):
         return []
@@ -108,10 +109,9 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None, playwr
 
     total_links_discovered = 0
 
-    # Note: do not truncate out_path here so other crawlers (e.g., headless)
-    # can append into the same file before/after this run.
 
-    # Seed queue with links discovered by headless crawler (depth 0), but keep scope to domain/base_path
+
+    # Seed queue with links discovered by headless crawler (depth 0)h
     for hl in _load_headless_links_simple(playwright_results_path):
         if hl == start_url:
             continue
@@ -178,9 +178,7 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None, playwr
         except Exception:
             continue
 
-        # If we've already fetched the same HTTP resource (after stripping #fragment),
-        # emit a lightweight record so the queued URL is still represented in results,
-        # then skip the duplicate network request.
+
         if request_url in visited:
             try:
                 parsed_page = urlparse(request_url)
@@ -211,7 +209,7 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None, playwr
         print("Crawling:", url)
 
         try:
-            r = session.get(request_url, timeout=10)
+            r = session.get(request_url, timeout=10, verify=False)
         except Exception as e:
             print(f"Request failed for {request_url}: {e}")
             continue
@@ -281,6 +279,7 @@ def static_main(seed:str):
 
 
     session = requests.Session()
+    session.verify = False
 
 
 
@@ -296,11 +295,11 @@ def static_main(seed:str):
 
 
 def static_main_seeds(seeds: list[str]):
-    """Run the static crawler once with all provided seeds by enqueuing them at depth 0.
-    The first seed defines the scope (domain and base path)."""
+
     if not isinstance(seeds, list) or not seeds:
         return
     session = requests.Session()
+    session.verify = False
     start = seeds[0]
     extra = seeds[1:] if len(seeds) > 1 else []
     crawl(
