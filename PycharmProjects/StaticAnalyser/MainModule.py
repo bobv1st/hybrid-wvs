@@ -65,7 +65,7 @@ def _load_seeds_from_results(results_path: str, base_seed: str) -> list[str]:
 
 def main():
     input_seed = input("Input seed url:")
-    input_login = input("Login required y/n?:")
+
 
 
 
@@ -80,7 +80,7 @@ def main():
     if len(seeds) > max_second_pass:
         seeds = seeds[:max_second_pass]
 
-    # Run API-aware crawler again with expanded seeds
+ 
     try:
         session = requests.Session()
         session.verify = False
