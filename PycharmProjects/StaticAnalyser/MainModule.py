@@ -9,6 +9,7 @@ import urllib3
 from urllib.parse import urlparse
 import requests
 
+
 # Disable SSL warnings globally
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -65,11 +66,11 @@ def _load_seeds_from_results(results_path: str, base_seed: str) -> list[str]:
 
 def main():
     input_seed = input("Input seed url:")
-    input_login = input("Login required y/n?:")
 
 
 
-    ApiCrawler.main_api(input_seed)
+
+
     crawler_playwright.playwright_main(input_seed)
     StaticAnalyser.static_main(input_seed)
 
@@ -80,21 +81,8 @@ def main():
     if len(seeds) > max_second_pass:
         seeds = seeds[:max_second_pass]
 
-    # Run API-aware crawler again with expanded seeds
-    try:
-        session = requests.Session()
-        session.verify = False
-        # Keep original output path and wordlist
-        ApiCrawler.api_crawl(
-            session,
-            seeds=seeds,
-            rate_limit=0.2,
-            max_new=200,
-            out_path="api_crawl_results.ndjson",
-            wordlist_path="api_wordlist.txt",
-        )
-    except Exception as e:
-        print(f"Second-pass API crawl error: {e}")
+
+
 
     # Headless crawler second pass
     try:
@@ -115,6 +103,8 @@ if __name__ == '__main__':
     scorer.main()
     SQLprobe.main()
     XSSprobe.main()
+
+
 
 
 
