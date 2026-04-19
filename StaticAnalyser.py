@@ -229,7 +229,7 @@ def crawl(session, start_url, max_depth=3, rate_limit=0.5, out_path=None, playwr
             if parsed.netloc != domain:
                 continue
 
-            # fix absolute paths that escape '/DVWA'
+            # fix absolute paths
             if not parsed.path.startswith(base_path):
 
                 if raw_href.startswith('/') and not raw_href.startswith(base_path + '/'):
