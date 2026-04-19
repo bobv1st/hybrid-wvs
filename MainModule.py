@@ -1,5 +1,5 @@
 import StaticAnalyser
-import ApiCrawler
+
 import crawler_playwright
 import scorer
 import SQLprobe
@@ -7,10 +7,10 @@ import XSSprobe
 import json
 import urllib3
 from urllib.parse import urlparse
-import requests
 
 
-# Disable SSL warnings globally
+
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -42,12 +42,12 @@ def _load_seeds_from_results(results_path: str, base_seed: str) -> list[str]:
                     obj = json.loads(line)
                 except Exception:
                     continue
-                # collect page and mapped_to
+
                 for key in ("page", "mapped_to"):
                     val = obj.get(key)
                     if isinstance(val, str) and _same_origin(val, base_seed):
                         seeds.add(_normalize_url(val))
-                # collect links array
+
                 links = obj.get("links") or []
                 if isinstance(links, list):
                     for l in links:
@@ -58,9 +58,9 @@ def _load_seeds_from_results(results_path: str, base_seed: str) -> list[str]:
     except FileNotFoundError:
         pass
     except Exception:
-        # be tolerant to read/parse errors
+
         pass
-    # Ensure the base seed is included
+
     seeds.add(_normalize_url(base_seed))
     return sorted(seeds)
 
@@ -74,7 +74,7 @@ def main():
     crawler_playwright.playwright_main(input_seed)
     StaticAnalyser.static_main(input_seed)
 
-    # Second pass: build seeds from the shared results file and rerun crawlers
+
     seeds = _load_seeds_from_results("static_crawl_results.ndjson", input_seed)
 
     max_second_pass = 500
