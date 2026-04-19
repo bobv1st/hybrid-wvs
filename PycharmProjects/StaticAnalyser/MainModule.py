@@ -1,5 +1,4 @@
 import StaticAnalyser
-import ApiCrawler
 import crawler_playwright
 import scorer
 import SQLprobe
