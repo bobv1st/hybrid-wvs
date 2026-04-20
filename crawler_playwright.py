@@ -280,10 +280,10 @@ class BrowserCrawler:
                 # Be tolerant to DOM irregularities
                 forms = []
 
-            # Parse GET parameters from the final URL for schema parity
+            
             try:
-                from urllib.parse import urlparse as _uparse
-                parsed_page = _uparse(final_url)
+                
+                parsed_page = urlparse(final_url)
                 get_params = parse_qs(parsed_page.query)
             except Exception:
                 get_params = {}
@@ -304,7 +304,8 @@ class BrowserCrawler:
             if self.cfg.verbose:
                 print(f"saved schema record for: {final_url}")
         finally:
-            # Ensure page gets closed promptly
+
+            
             try:
                 await asyncio.wait_for(page.close(), timeout=5)
             except Exception:
@@ -319,26 +320,7 @@ class BrowserCrawler:
             await asyncio.sleep(self.cfg.per_host_delay - delta)
         self._host_last_time[host] = time.time()
 
-    async def _infinite_scroll(self, page: Page, steps: int, pause_s: float):
-        for _ in range(steps):
-            try:
-                await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(pause_s)
-            except Exception:
-                break
-
-    async def _click_repeated(self, page: Page, selector: str, times: int):
-        clicks = 0
-        while clicks < times:
-            try:
-                el = await page.query_selector(selector)
-                if not el:
-                    break
-                await el.click()
-                clicks += 1
-                await asyncio.sleep(0.6)
-            except Exception:
-                break
+    
 
     # Normalization
     def _normalize(self, url: str) -> str:
